@@ -214,6 +214,27 @@ void main(void)
 	ret = leds_set();
 	ERR_CHK(ret);
 
+	// List all the files on the card
+	ret = sd_card_list_files("/");
+	if(ret < 0) {
+		LOG_ERR("Unable to read files from SD card (err %i)", ret);
+	}
+
+	// Attempt to read one file and print the content
+	const int maxlength = 256;
+	const uint8_t *test_file_name = "/test_1.txt";
+	uint8_t file_data[maxlength+1];
+	size_t length = maxlength;
+	ret = sd_card_read(test_file_name, file_data, &length);
+	if (ret == 0) {
+		// Ensure the file_data is null terminated
+		file_data[length] = 0;
+		LOG_INF("Content of file %s: %s", test_file_name, file_data);
+	}
+	else {
+		LOG_ERR("Test file not found (err %i)", ret);
+	}
+
 	audio_system_init();
 
 	ret = streamctrl_start();

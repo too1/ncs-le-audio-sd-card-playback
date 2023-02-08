@@ -52,6 +52,12 @@ int sd_card_write(char const *const filename, char const *const data, size_t *si
  */
 int sd_card_read(char const *const filename, char *const data, size_t *size);
 
+int sd_card_segment_read_open(char const *const filename);
+
+int sd_card_segment_read(char *const data, size_t *size);
+
+int sd_card_segment_read_close(void);
+
 /**@brief  Initialize the SD card interface and print out SD card details.
  *
  * @retval	0 on success

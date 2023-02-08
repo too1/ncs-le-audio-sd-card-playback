@@ -25,6 +25,8 @@
 #include "audio_system.h"
 #include "channel_assignment.h"
 #include "streamctrl.h"
+#include "audio_i2s.h"
+#include "hw_codec.h"
 
 #if defined(CONFIG_AUDIO_DFU_ENABLE)
 #include "dfu_entry.h"
@@ -158,6 +160,57 @@ void on_ble_core_ready(void)
 	}
 }
 
+#define I2S_16BIT_SAMPLE_NUM (I2S_SAMPLES_NUM*2)
+
+static uint16_t m_i2s_tx_buf_a[I2S_16BIT_SAMPLE_NUM], m_i2s_rx_buf_a[I2S_16BIT_SAMPLE_NUM], m_i2s_tx_buf_b[I2S_16BIT_SAMPLE_NUM], m_i2s_rx_buf_b[I2S_16BIT_SAMPLE_NUM];
+
+K_SEM_DEFINE(m_sem_i2s_buf_set, 1, 1);
+uint16_t *next_buf_tx = m_i2s_tx_buf_b;
+uint16_t *next_buf_rx = m_i2s_rx_buf_b;
+
+void i2s_callback(uint32_t frame_start_ts, uint32_t *rx_buf_released, uint32_t const *tx_buf_released)
+{
+	//printk("*");
+	if(tx_buf_released) {
+		//next_buf_tx = tx_buf_released;
+		//next_buf_rx = rx_buf_released;
+		k_sem_give(&m_sem_i2s_buf_set);
+	}
+}
+
+
+int play_file_from_sd(const char *filename)
+{
+	printk("Opening file %s\n", filename);
+	int ret = sd_card_segment_read_open(filename);
+	if(ret < 0) return ret;
+	
+	audio_i2s_start((const uint8_t *)m_i2s_tx_buf_a, (uint32_t *)m_i2s_rx_buf_a);
+	
+	int logdiv = 0;
+	size_t sd_read_length;
+	while(1) {
+		k_sem_take(&m_sem_i2s_buf_set, K_FOREVER);
+
+		sd_read_length = I2S_16BIT_SAMPLE_NUM * 2;
+		sd_card_segment_read((uint8_t*)next_buf_tx, &sd_read_length);
+		//printk("read %i ", sd_read_length);
+		if(sd_read_length == 0) break;
+		audio_i2s_set_next_buf((const uint8_t *)next_buf_tx, (uint32_t *)next_buf_rx);
+		next_buf_tx = (next_buf_tx == m_i2s_tx_buf_a) ? m_i2s_tx_buf_b : m_i2s_tx_buf_a;
+		next_buf_rx = (next_buf_rx == m_i2s_rx_buf_a) ? m_i2s_rx_buf_b : m_i2s_rx_buf_a;
+		if((++logdiv % 50) == 0) printk("loop %i\n", logdiv);
+	}
+
+	printk("Stopping I2S\n");
+
+	audio_i2s_stop();
+
+	printk("Closing file\n");
+
+	return sd_card_segment_read_close();
+}
+
 void main(void)
 {
 	int ret;
@@ -173,10 +226,12 @@ void main(void)
 	ret = button_handler_init();
 	ERR_CHK(ret);
 
+#if 0
 	channel_assignment_init();
 
 	ret = channel_assign_check();
 	ERR_CHK(ret);
+#endif
 
 	ret = fw_info_app_print();
 	ERR_CHK(ret);
@@ -202,6 +257,7 @@ void main(void)
 	dfu_entry_check();
 #endif
 
+#if 0
 	/* Initialize BLE, with callback for when BLE is ready */
 	ret = ble_core_init(on_ble_core_ready);
 	ERR_CHK(ret);
@@ -210,6 +266,7 @@ void main(void)
 	while (!(bool)atomic_get(&ble_core_is_ready)) {
 		(void)k_sleep(K_MSEC(100));
 	}
+#endif
 
 	ret = leds_set();
 	ERR_CHK(ret);
@@ -234,7 +291,21 @@ void main(void)
 	else {
 		LOG_ERR("Test file not found (err %i)", ret);
 	}
+	k_msleep(2000);
+	// Initialize the codec and I2S driver manually
+	audio_i2s_blk_comp_cb_register(i2s_callback);
+	audio_i2s_init();
 
+	ret = hw_codec_init();
+	ERR_CHK(ret);
+
+	hw_codec_default_conf_enable();
+	hw_codec_volume_set(40);
+
+	// Play test file from SD card
+	play_file_from_sd("/Test88K.wav");
+
+#if 0
 	audio_system_init();
 
 	ret = streamctrl_start();
@@ -244,4 +315,5 @@ void main(void)
 		streamctrl_event_handler();
 		STACK_USAGE_PRINT("main", &z_main_thread);
 	}
+#endif
 }

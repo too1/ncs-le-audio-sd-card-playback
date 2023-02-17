@@ -168,7 +168,8 @@ static uint16_t m_i2s_tx_buf_a[I2S_16BIT_SAMPLE_NUM], m_i2s_rx_buf_a[I2S_16BIT_S
 
 K_SEM_DEFINE(m_sem_load_from_sd, 0, 1);
 
-#define SOUND_BUF_SIZE (I2S_16BIT_SAMPLE_NUM * 2 * 1000)
+#define SOUND_BUF_SIZE (I2S_16BIT_SAMPLE_NUM * 2 * 4)
+#define SD_CARD_TRANSFER_SIZE (SOUND_BUF_SIZE / 2)
 RING_BUF_DECLARE(m_ringbuf_sound_data, SOUND_BUF_SIZE);
 
 void i2s_callback(uint32_t frame_start_ts, uint32_t *rx_buf_released, uint32_t const *tx_buf_released)
@@ -187,7 +188,7 @@ void i2s_callback(uint32_t frame_start_ts, uint32_t *rx_buf_released, uint32_t c
 
 	// Check the current free space in the buffer. 
 	// If more than half the buffer is free we should move more data from the SD card
-	if(ring_buf_space_get(&m_ringbuf_sound_data) > (SOUND_BUF_SIZE / 2)) {
+	if(ring_buf_space_get(&m_ringbuf_sound_data) > SD_CARD_TRANSFER_SIZE) {
 		k_sem_give(&m_sem_load_from_sd);
 	}
 }
@@ -232,7 +233,7 @@ int play_file_from_sd(const char *filename)
 		k_sem_take(&m_sem_load_from_sd, K_FOREVER);
 		
 		// Move data from the SD card to the buffer, one half at the time
-		if (sd_card_to_buffer(SOUND_BUF_SIZE / 2) < (SOUND_BUF_SIZE / 2)) {
+		if (sd_card_to_buffer(SD_CARD_TRANSFER_SIZE) < SD_CARD_TRANSFER_SIZE) {
 			// If the function returns less bytes than requested we have reached the end of the file. 
 			// Exit the while loop and stop the I2S driver
 			break;
@@ -342,6 +343,8 @@ void main(void)
 	hw_codec_default_conf_enable();
 	hw_codec_volume_set(100);
 
+	LOG_INF("SD transfer size %i, total buffer size %i", SD_CARD_TRANSFER_SIZE, SOUND_BUF_SIZE);
+	
 	// Play test file from SD card
 	play_file_from_sd("/Test88K.wav");
 
